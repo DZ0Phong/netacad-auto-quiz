@@ -2,6 +2,7 @@ importScripts("vendor/puter.js");
 
 const PUTER_SYNC_KEYS = ["puterAuthToken", "puterAppId", "puterUser"];
 const NETACAD_CONTENT_SCRIPTS = ["api.js", "ui.js", "scraper.js", "content.js"];
+const PUTER_PRIMARY_MODEL = "openai/gpt-5.4-nano";
 
 async function getStoredPuterSession() {
   return chrome.storage.sync.get(PUTER_SYNC_KEYS);
@@ -27,7 +28,7 @@ async function hydratePuterSession() {
 
 function buildChatOptions() {
   return {
-    model: "openai/gpt-5.4-nano",
+    model: PUTER_PRIMARY_MODEL,
     max_tokens: 500,
   };
 }
@@ -227,13 +228,15 @@ async function callPuterChat(prompt) {
     throw new Error("You are not signed in to Puter. Open the extension popup and sign in first.");
   }
 
-  const response = await puter.ai.chat(prompt, buildChatOptions());
+  const response = await puter.ai.chat(prompt, {
+    ...buildChatOptions(),
+  });
   return extractPuterMessageText(response);
 }
 
 async function callPuterChatWithRetry(prompt, attempts = 2) {
   let lastText = "";
-
+ 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     lastText = await callPuterChat(prompt);
     if (lastText) {

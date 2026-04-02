@@ -52,36 +52,45 @@ function createAiAssistantUI(uiContainerId, index) {
   const uiContainer = document.createElement("div");
   uiContainer.id = uiContainerId;
   uiContainer.className = "netacad-ai-assistant-ui";
-  uiContainer.style.marginTop = "15px";
-  uiContainer.style.padding = "10px";
+  uiContainer.style.marginTop = "12px";
+  uiContainer.style.marginBottom = "12px";
+  uiContainer.style.padding = "8px 10px";
   uiContainer.style.border = "1px solid #007bff";
   uiContainer.style.borderRadius = "5px";
   uiContainer.style.backgroundColor = "#e7f3ff";
   uiContainer.style.color = "#333";
+  uiContainer.style.display = "flex";
+  uiContainer.style.alignItems = "center";
+  uiContainer.style.gap = "10px";
+  uiContainer.style.flexWrap = "wrap";
 
   const titleElement = document.createElement("h5");
   titleElement.textContent = "AI Assistant";
-  titleElement.style.marginTop = "0px";
-  titleElement.style.marginBottom = "5px";
+  titleElement.style.margin = "0";
   titleElement.style.color = "#0056b3";
+  titleElement.style.fontSize = "14px";
+  titleElement.style.flex = "0 0 auto";
   uiContainer.appendChild(titleElement);
 
   const aiAnswerDisplay = document.createElement("p");
   aiAnswerDisplay.className = "ai-answer-display";
-  aiAnswerDisplay.style.margin = "5px 0";
+  aiAnswerDisplay.style.margin = "0";
   aiAnswerDisplay.style.fontStyle = "italic";
+  aiAnswerDisplay.style.flex = "1 1 260px";
+  aiAnswerDisplay.style.minWidth = "180px";
   aiAnswerDisplay.textContent = "Initializing...";
   uiContainer.appendChild(aiAnswerDisplay);
 
   const refreshButton = document.createElement("button");
   refreshButton.className = "ai-refresh-button";
   refreshButton.textContent = "Refresh AI Answer";
-  refreshButton.style.padding = "6px 12px";
+  refreshButton.style.padding = "5px 10px";
   refreshButton.style.border = "none";
   refreshButton.style.borderRadius = "4px";
   refreshButton.style.backgroundColor = "#007bff";
   refreshButton.style.color = "white";
   refreshButton.style.cursor = "pointer";
+  refreshButton.style.flex = "0 0 auto";
   refreshButton.onmouseover = () =>
     (refreshButton.style.backgroundColor = "#0056b3");
   refreshButton.onmouseout = () =>
@@ -260,136 +269,50 @@ function getOutermostHostElement(node) {
 function injectUi(uiContainer, questionTextElement, mcqViewElement, answerElements, uiContainerId, index) {
   let uiInjected = false;
 
-  const outermostHostElement = mcqViewElement
-    ? getOutermostHostElement(mcqViewElement)
-    : null;
-
-  if (outermostHostElement && outermostHostElement.parentElement) {
-    const existingUiByHost = outermostHostElement.parentElement.querySelector(
-      `#${uiContainerId}`
-    );
-    if (
-      existingUiByHost &&
-      existingUiByHost.parentElement === outermostHostElement.parentElement
-    ) {
-      existingUiByHost.remove();
-    }
-
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): Trying to place UI outside NetAcad shadow DOM to avoid clipping.`
-    );
-
-    if (outermostHostElement.nextSibling) {
-      outermostHostElement.parentElement.insertBefore(
-        uiContainer,
-        outermostHostElement.nextSibling
-      );
-      console.debug(
-        `NetAcad UI: Injection (Q ${
-          index + 1
-        }): SUCCESS - Injected after the outermost host element.`
-      );
-    } else {
-      outermostHostElement.parentElement.appendChild(uiContainer);
-      console.debug(
-        `NetAcad UI: Injection (Q ${
-          index + 1
-        }): SUCCESS - Appended after the outermost host element.`
-      );
-    }
-    uiInjected = true;
-  } else {
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): Could not find an outer host mount point, falling back to previous strategies.`
-    );
-  }
-
-  if (!uiInjected) {
-    const hostElement = mcqViewElement
-      ? mcqViewElement.getRootNode().host
-      : null;
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): Attempting fallback via hostElement. mcqViewElement present: ${!!mcqViewElement}, hostElement: ${
-        hostElement ? `<${hostElement.tagName}>` : "null"
-      }`
-    );
-    if (hostElement && hostElement.parentElement) {
-      console.debug(
-        `NetAcad UI: Injection (Q ${index + 1}): hostElement.parentElement: ${
-          hostElement.parentElement
-            ? `<${hostElement.parentElement.tagName}>`
-            : "null"
-        }`
-      );
-      // Try to remove existing UI if it was placed here by ID
-      const existingUiByHost = hostElement.parentElement.querySelector(
+  if (questionTextElement && questionTextElement.parentNode) {
+    try {
+      const existingUiInPlace = questionTextElement.parentNode.querySelector(
         `#${uiContainerId}`
       );
-      if (
-        existingUiByHost &&
-        existingUiByHost.parentElement === hostElement.parentElement
-      ) {
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): Removing existing UI (id: ${uiContainerId}) from hostElement.parentElement.`
-        );
-        existingUiByHost.remove();
+      if (existingUiInPlace) {
+        existingUiInPlace.remove();
       }
 
-      if (hostElement.nextSibling) {
-        hostElement.parentElement.insertBefore(
-          uiContainer,
-          hostElement.nextSibling
-        );
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): SUCCESS - Injected via hostElement.parentElement, before hostElement.nextSibling.`
-        );
-      } else {
-        hostElement.parentElement.appendChild(uiContainer);
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): SUCCESS - Appended via hostElement.parentElement.`
-        );
-      }
+      questionTextElement.parentNode.insertBefore(
+        uiContainer,
+        questionTextElement.nextSibling
+      );
       uiInjected = true;
-    } else if (!uiInjected) {
       console.debug(
         `NetAcad UI: Injection (Q ${
           index + 1
-        }): SKIPPED - hostElement (found: ${!!hostElement}) or hostElement.parentElement (found: ${!!(
-          hostElement && hostElement.parentElement
-        )}) is missing.`
+        }): SUCCESS - Injected after question prompt.`
       );
-      // Try to remove existing UI if it was placed here by ID
-      const existingUiInBody = document.body.querySelector(`#${uiContainerId}`);
-      if (
-        existingUiInBody &&
-        existingUiInBody.parentElement === document.body
-      ) {
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): Removing existing UI (id: ${uiContainerId}) from document.body.`
-        );
-        existingUiInBody.remove();
-      }
-
+    } catch (error) {
       console.warn(
         `NetAcad UI: Injection (Q ${
           index + 1
-        }): CRITICAL FALLBACK - Appending to document.body.`
+        }): Failed to inject after question prompt.`,
+        error,
       );
-      document.body.appendChild(uiContainer);
+    }
+  }
+
+  if (!uiInjected) {
+    if (mcqViewElement && mcqViewElement.shadowRoot) {
+      const existingUiInShadowRoot = mcqViewElement.shadowRoot.querySelector(
+        `#${uiContainerId}`
+      );
+      if (existingUiInShadowRoot) {
+        existingUiInShadowRoot.remove();
+      }
+
+      mcqViewElement.shadowRoot.appendChild(uiContainer);
+      console.debug(
+        `NetAcad UI: Injection (Q ${
+          index + 1
+        }): Fallback SUCCESS - Injected into mcqViewElement.shadowRoot.`
+      );
       uiInjected = true;
     }
   }
