@@ -180,10 +180,15 @@ function stripMarkdownCodeFence(rawText) {
 }
 
 function buildSingleQuestionPrompt(question, answers) {
-  let prompt = `Given the following multiple-choice question and its possible answers, please choose the best answer(s).
-If the question implies multiple correct answers (e.g., 'select all that apply', 'choose N correct options'), return ALL chosen answer texts, each on a new line.
-Otherwise, if it's a single-choice question, return only the text of the single best chosen answer option.
-Do not add any extra explanation or leading text like "The best answer is: ".
+  let prompt = `You are answering a multiple-choice networking quiz question.
+
+Rules:
+- Choose the best answer using ONLY the provided answer options.
+- Copy the chosen answer text exactly from the provided options.
+- Do not paraphrase, shorten, or explain the answer.
+- If the question implies multiple correct answers (for example: "select all that apply", "choose two", "choose three"), return ALL selected answer texts, one per line.
+- Otherwise return only ONE line containing the single best answer text.
+- Do not return labels, numbering, commentary, confidence, or phrases like "The answer is".
 
 Question:
 ${question}
@@ -195,6 +200,13 @@ Possible Answers:
     prompt += `${index + 1}. ${answer}\n`;
   });
 
+  prompt += `
+Return format examples:
+- Single-answer question -> TCP
+- Multi-answer question ->
+Answer A
+Answer C`;
+
   return prompt;
 }
 
@@ -202,11 +214,15 @@ function buildBatchPrompt(questionsDataArray) {
   let prompt =
     "You will be provided with a JSON array of multiple-choice questions. For each question, choose the best answer(s) from its 'possible_answers'.\n";
   prompt +=
+    "You must choose using ONLY the provided answer texts and copy the chosen answer text exactly. Do not paraphrase.\n";
+  prompt +=
     "If a question implies multiple correct answers (e.g., 'select all that apply', 'choose N correct options'), include all correct answer texts for that question concatenated into a single string, separated by ' /// ' (space, three forward slashes, space).\n";
   prompt +=
     "Otherwise, if it's a single-choice question, return just the single best answer text as the string for that question.\n";
   prompt +=
-    "Return only a valid JSON array of strings in the same order as the input. Do not wrap the array in markdown fences and do not add explanation.\n\n";
+    "Return a single valid JSON array of strings in the same order as the input. Do not wrap the array in markdown fences and do not add explanation.\n";
+  prompt +=
+    'For example, if Q1 has one correct answer and Q2 has two correct answers, a valid output is: ["Text of answer for Q1", "Text of answer A for Q2 /// Text of answer B for Q2"]\n\n';
   prompt += "Questions:\n";
   prompt += JSON.stringify(
     questionsDataArray.map((questionData, index) => ({
