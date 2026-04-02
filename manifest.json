@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "NetAcad Auto Quiz Assistant",
+  "version": "1.0",
+  "description": "NetAcad Auto Quiz Assistant with Puter-powered answer suggestions.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://api.puter.com/*",
+    "https://puter.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.netacad.com/*"
+      ],
+      "js": [
+        "api.js",
+        "ui.js",
+        "scraper.js",
+        "content.js"
+      ],
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "images/icon-48x48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://api.puter.com https://puter.com wss://api.puter.com wss://puter.com;"
+  },
+  "commands": {
+    "process-page-command": {
+      "suggested_key": {
+        "default": "Alt+Shift+Q",
+        "mac": "Alt+Shift+Q"
+      },
+      "description": "Process Questions on this Page"
+    }
+  },
+  "icons": {
+    "48": "images/icon-48x48.png"
+  }
+}

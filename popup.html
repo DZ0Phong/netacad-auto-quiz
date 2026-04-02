@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NetAcad Auto Quiz Assistant</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      width: 320px;
+      padding: 14px;
+      background: linear-gradient(180deg, #f6fbff 0%, #eef4f7 100%);
+      color: #1f2933;
+    }
+
+    h3 {
+      margin: 0 0 10px 0;
+      color: #0b5cab;
+      text-align: center;
+    }
+
+    .panel {
+      background: #ffffff;
+      border: 1px solid #d7e5f3;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 8px 24px rgba(11, 92, 171, 0.08);
+    }
+
+    .session-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #5b6b79;
+      margin-bottom: 6px;
+    }
+
+    .session-value {
+      font-size: 14px;
+      line-height: 1.4;
+      margin-bottom: 10px;
+      word-break: break-word;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    button {
+      background-color: #0b74de;
+      color: white;
+      padding: 10px 12px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background-color: #095fb3;
+    }
+
+    button.secondary {
+      background-color: #eef4fb;
+      color: #0b5cab;
+      border: 1px solid #c7d9ec;
+    }
+
+    button.secondary:hover {
+      background-color: #ddebf8;
+    }
+
+    button.danger {
+      background-color: #d64545;
+    }
+
+    button.danger:hover {
+      background-color: #b93535;
+    }
+
+    #status {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 0.9em;
+      color: #44515c;
+      min-height: 18px;
+    }
+
+    small {
+      display: block;
+      margin-top: 10px;
+      color: #5b6b79;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <h3>NetAcad Auto Quiz Assistant</h3>
+
+  <div class="panel">
+    <div class="session-label">Puter Session</div>
+    <div class="session-value" id="sessionInfo">Checking sign-in status...</div>
+
+    <button id="openPuterAuth">Sign In With Puter</button>
+    <button id="signOutPuter" class="danger">Sign Out</button>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="showAnswersToggle" checked>
+      <label for="showAnswersToggle" style="cursor: pointer;">Show AI Answers</label>
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="processOnSwitchToggle" checked>
+      <label for="processOnSwitchToggle" style="cursor: pointer;">Process on Page Switch</label>
+    </div>
+
+    <button id="processPage" class="secondary">Process Questions on This Page</button>
+  </div>
+
+  <div id="status"></div>
+  <small>Use Alt+Shift+Q to process questions on the current NetAcad page.</small>
+
+  <script src="popup.js"></script>
+</body>
+</html>
