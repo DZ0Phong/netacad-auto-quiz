@@ -16,6 +16,20 @@ function sendMessageToBackground(message) {
   });
 }
 
+function normalizeMessagingError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (
+    message.includes("Extension context invalidated") ||
+    message.includes("Receiving end does not exist") ||
+    message.includes("Could not establish connection")
+  ) {
+    return "Extension was reloaded. Click 'Process Questions on This Page' once to re-attach the extension to this tab.";
+  }
+
+  return message;
+}
+
 async function getAiAnswer(question, answers) {
   if (!question || !Array.isArray(answers) || answers.length === 0) {
     return "Error: Missing question text or answer options.";
@@ -37,8 +51,9 @@ async function getAiAnswer(question, answers) {
 
     return response.answer;
   } catch (error) {
-    console.error("Error sending single Puter AI request to background:", error);
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    const normalizedMessage = normalizeMessagingError(error);
+    console.warn("Single Puter AI request failed:", normalizedMessage);
+    return `Error: ${normalizedMessage}`;
   }
 }
 
@@ -63,9 +78,10 @@ async function getAiAnswersForBatch(questionsDataArray) {
 
     return { answers: response.answers || [] };
   } catch (error) {
-    console.error("Error sending Puter batch AI request to background:", error);
+    const normalizedMessage = normalizeMessagingError(error);
+    console.warn("Puter batch AI request failed:", normalizedMessage);
     return {
-      error: `Error: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Error: ${normalizedMessage}`,
     };
   }
 }

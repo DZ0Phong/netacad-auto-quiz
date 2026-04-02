@@ -1,6 +1,30 @@
 // Constants for retry mechanism
 const MAX_SCRAPE_ATTEMPTS = 10;
 const SCRAPE_RETRY_DELAY_MS = 1500;
+const INDIVIDUAL_AI_CONCURRENCY = 2;
+
+async function processQuestionsIndividually(questionsData, authToken) {
+  let currentIndex = 0;
+
+  async function worker() {
+    while (currentIndex < questionsData.length) {
+      const questionIndex = currentIndex;
+      currentIndex += 1;
+
+      const questionData = questionsData[questionIndex];
+      await processSingleQuestion(
+        questionData.mcqViewElement,
+        questionData.originalIndex,
+        authToken,
+        null,
+      );
+    }
+  }
+
+  const workerCount = Math.min(INDIVIDUAL_AI_CONCURRENCY, questionsData.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+}
 
 async function scrapeData(currentAttempt = 1) {
   console.debug(
@@ -106,43 +130,10 @@ async function scrapeData(currentAttempt = 1) {
   }
 
   if (allQuestionsData.length > 0) {
-    console.debug(`NetAcad Auto Quiz Assistant (scraper.js): Extracted ${allQuestionsData.length} valid questions for batch API call.`);
-    const questionsForBatchApi = allQuestionsData.map(q => ({ question: q.question, answers: q.answers }));
-    
-    // Call processSingleQuestion for each item to set up initial UI (e.g., "Processing batch...")
-    // BEFORE making the batch API call.
-    for (const questionData of allQuestionsData) {
-        // Pass a specific message to indicate batch processing is starting
-        // processSingleQuestion will need to handle this initial state message.
-        await processSingleQuestion(questionData.mcqViewElement, questionData.originalIndex, authToken, "BATCH_PROCESSING_STARTED");
-    }
-
-    const batchApiResponse = await getAiAnswersForBatch(questionsForBatchApi);
-    let batchedAnswers = [];
-    let batchError = null;
-
-    if (batchApiResponse.error) {
-      console.error("NetAcad Auto Quiz Assistant (scraper.js): Error from batch API call:", batchApiResponse.error);
-      batchError = batchApiResponse.error;
-    } else if (batchApiResponse.answers && batchApiResponse.answers.length === allQuestionsData.length) {
-      batchedAnswers = batchApiResponse.answers;
-      console.debug("NetAcad Auto Quiz Assistant (scraper.js): Successfully received batched answers.");
-    } else {
-      console.error("NetAcad Auto Quiz Assistant (scraper.js): Mismatch in batched answers length or no answers received.");
-      batchError = "Error: AI response for batch was incomplete or malformed.";
-      if(batchApiResponse.answers) batchedAnswers = batchApiResponse.answers; // Use partial if available
-    }
-
-    // Now, update each UI with its specific answer or the batch error
-    for (let i = 0; i < allQuestionsData.length; i++) {
-      const questionData = allQuestionsData[i];
-      let finalAnswerToShow = batchError ? batchError : (batchedAnswers[i] || "Error: No specific answer in batch response.");
-      // Re-call processSingleQuestion or a dedicated update function. 
-      // For simplicity, re-calling processSingleQuestion with the fetched answer.
-      // It will re-extract, but then display the provided answer.
-      // A more optimized way would be to have a separate UI update function.
-      await processSingleQuestion(questionData.mcqViewElement, questionData.originalIndex, authToken, finalAnswerToShow);
-    }
+    console.debug(
+      `NetAcad Auto Quiz Assistant (scraper.js): Extracted ${allQuestionsData.length} valid questions. Processing individually with concurrency ${INDIVIDUAL_AI_CONCURRENCY}.`,
+    );
+    await processQuestionsIndividually(allQuestionsData, authToken);
   } else {
     console.debug("NetAcad Auto Quiz Assistant (scraper.js): No valid questions extracted to send for batch processing.");
     // If there were mcqViewElements but none yielded valid Q&A, their UIs would have been handled

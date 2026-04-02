@@ -1,6 +1,9 @@
 console.log("NetAcad Auto Quiz Assistant content script loaded and ready.");
 
 let debounceTimeout;
+let observerInitTimeout;
+let mutationObserverInitialized = false;
+
 function debouncedScrape() {
   clearTimeout(debounceTimeout);
   debounceTimeout = setTimeout(() => {
@@ -27,6 +30,10 @@ function debouncedScrape() {
 }
 
 function initMutationObserver() {
+  if (mutationObserverInitialized) {
+    return true;
+  }
+
   console.debug("NetAcad Auto Quiz Assistant: Attempting to initialize MutationObserver.");
   const appRoot = document.querySelector("app-root");
   if (appRoot && appRoot.shadowRoot) {
@@ -43,19 +50,28 @@ function initMutationObserver() {
       });
 
       observer.observe(targetNode, observerConfig);
+      mutationObserverInitialized = true;
       console.debug(
         "NetAcad Auto Quiz Assistant: MutationObserver initialized and observing page-view's shadowRoot.",
       );
+      return true;
     } else {
-      console.warn(
-        "NetAcad Auto Quiz Assistant: MutationObserver setup failed - page-view or its shadowRoot not found. Observer will not be active.",
+      console.debug(
+        "NetAcad Auto Quiz Assistant: MutationObserver not ready yet - page-view or its shadowRoot not found. Will retry shortly.",
       );
     }
   } else {
-    console.warn(
-      "NetAcad Auto Quiz Assistant: MutationObserver setup failed - app-root or its shadowRoot not found. Observer will not be active.",
+    console.debug(
+      "NetAcad Auto Quiz Assistant: MutationObserver not ready yet - app-root or its shadowRoot not found. Will retry shortly.",
     );
   }
+
+  clearTimeout(observerInitTimeout);
+  observerInitTimeout = setTimeout(() => {
+    initMutationObserver();
+  }, 1500);
+
+  return false;
 }
 
 if (typeof window.scrapeData !== "function") {

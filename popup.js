@@ -102,58 +102,53 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       setStatus("Sending command to page...");
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (!tabs.length || !tabs[0].id) {
-          setStatus("Error: Could not find active tab.", 4000);
-          return;
-        }
-
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          { action: "processPage", showAnswers: showAnswersToggle.checked },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                "Popup Error: Error sending message to content script:",
-                chrome.runtime.lastError.message,
-              );
-              setStatus(
-                `Error: Could not communicate with page. Details: ${chrome.runtime.lastError.message}`,
-                5000,
-              );
-              return;
-            }
-
-            if (!response) {
-              setStatus(
-                "No response from page. Open a NetAcad page and try again.",
-                4000,
-              );
-              return;
-            }
-
-            if (response.success && response.result === true) {
-              setStatus("Processing started on page.", 3000);
-              return;
-            }
-
-            if (response.success && response.result === false) {
-              setStatus(
-                "No questions found, or answer display is disabled.",
-                4000,
-              );
-              return;
-            }
-
+      chrome.runtime.sendMessage(
+        {
+          action: "processPageOnActiveTab",
+          showAnswers: showAnswersToggle.checked,
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              "Popup Error: Error sending message to background:",
+              chrome.runtime.lastError.message,
+            );
             setStatus(
-              response.error
-                ? `Error on page: ${response.error}`
-                : "The page responded with an unexpected result.",
+              `Error: ${chrome.runtime.lastError.message}`,
               5000,
             );
-          },
-        );
-      });
+            return;
+          }
+
+          if (!response) {
+            setStatus(
+              "No response from extension background. Try again once.",
+              4000,
+            );
+            return;
+          }
+
+          if (response.success && response.result === true) {
+            setStatus("Processing started on page.", 3000);
+            return;
+          }
+
+          if (response.success && response.result === false) {
+            setStatus(
+              "No questions found, or answer display is disabled.",
+              4000,
+            );
+            return;
+          }
+
+          setStatus(
+            response.error
+              ? `Error on page: ${response.error}`
+              : "The page responded with an unexpected result.",
+            5000,
+          );
+        },
+      );
     });
   });
 

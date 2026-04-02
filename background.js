@@ -1,6 +1,7 @@
 importScripts("vendor/puter.js");
 
 const PUTER_SYNC_KEYS = ["puterAuthToken", "puterAppId", "puterUser"];
+const NETACAD_CONTENT_SCRIPTS = ["api.js", "ui.js", "scraper.js", "content.js"];
 
 async function getStoredPuterSession() {
   return chrome.storage.sync.get(PUTER_SYNC_KEYS);
@@ -26,7 +27,8 @@ async function hydratePuterSession() {
 
 function buildChatOptions() {
   return {
-    max_tokens: 700,
+    model: "openai/gpt-5.4-nano",
+    max_tokens: 500,
   };
 }
 
@@ -58,7 +60,87 @@ function extractPuterMessageText(response) {
       .trim();
   }
 
+  if (typeof response.text === "string") {
+    return response.text.trim();
+  }
+
+  if (typeof response.content === "string") {
+    return response.content.trim();
+  }
+
+  if (Array.isArray(response.content)) {
+    return response.content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (typeof part?.text === "string") {
+          return part.text;
+        }
+        if (typeof part?.content === "string") {
+          return part.content;
+        }
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+
+  if (typeof response.toString === "function") {
+    const stringValue = response.toString();
+    if (typeof stringValue === "string" && stringValue !== "[object Object]") {
+      return stringValue.trim();
+    }
+  }
+
+  if (typeof response === "object") {
+    const discoveredText = findFirstTextRecursively(response);
+    if (discoveredText) {
+      return discoveredText;
+    }
+  }
+
   return String(response).trim();
+}
+
+function findFirstTextRecursively(value, depth = 0) {
+  if (!value || depth > 4) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = findFirstTextRecursively(item, depth + 1);
+      if (text) {
+        return text;
+      }
+    }
+    return "";
+  }
+
+  if (typeof value === "object") {
+    for (const key of ["text", "content", "message", "output", "result", "response"]) {
+      if (key in value) {
+        const text = findFirstTextRecursively(value[key], depth + 1);
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    for (const nestedValue of Object.values(value)) {
+      const text = findFirstTextRecursively(nestedValue, depth + 1);
+      if (text) {
+        return text;
+      }
+    }
+  }
+
+  return "";
 }
 
 function normalizeErrorMessage(error, fallbackMessage) {
@@ -149,9 +231,23 @@ async function callPuterChat(prompt) {
   return extractPuterMessageText(response);
 }
 
+async function callPuterChatWithRetry(prompt, attempts = 2) {
+  let lastText = "";
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    lastText = await callPuterChat(prompt);
+    if (lastText) {
+      return lastText;
+    }
+    console.warn(`Background: Puter chat returned empty text on attempt ${attempt}/${attempts}.`);
+  }
+
+  return lastText;
+}
+
 async function handleSingleAiRequest(payload) {
   const prompt = buildSingleQuestionPrompt(payload.question, payload.answers);
-  const text = await callPuterChat(prompt);
+  const text = await callPuterChatWithRetry(prompt);
 
   if (!text) {
     throw new Error("Puter AI returned an empty response.");
@@ -160,49 +256,127 @@ async function handleSingleAiRequest(payload) {
   return { answer: text };
 }
 
+function tryParseJsonArrayFromText(rawText) {
+  const normalizedText = stripMarkdownCodeFence(rawText);
+
+  if (!normalizedText) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(normalizedText);
+  } catch (error) {
+    const startIndex = normalizedText.indexOf("[");
+    const endIndex = normalizedText.lastIndexOf("]");
+
+    if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+      const candidate = normalizedText.slice(startIndex, endIndex + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch (innerError) {
+        console.warn("Background: Failed to parse extracted JSON array candidate.", candidate, innerError);
+      }
+    }
+  }
+
+  return null;
+}
+
+async function fallbackBatchToIndividualAnswers(questionsDataArray) {
+  console.warn("Background: Falling back to individual Puter AI calls for batch request.");
+  const answers = [];
+
+  for (const questionData of questionsDataArray) {
+    const singleResult = await handleSingleAiRequest(questionData);
+    answers.push(singleResult.answer);
+  }
+
+  return { answers };
+}
+
 async function handleBatchAiRequest(payload) {
   if (!Array.isArray(payload.questionsDataArray) || payload.questionsDataArray.length === 0) {
     return { answers: [] };
   }
 
   const prompt = buildBatchPrompt(payload.questionsDataArray);
-  const rawText = await callPuterChat(prompt);
-  const normalizedText = stripMarkdownCodeFence(rawText);
+  const rawText = await callPuterChatWithRetry(prompt);
+  const parsedAnswers = tryParseJsonArrayFromText(rawText);
 
-  let parsedAnswers;
-  try {
-    parsedAnswers = JSON.parse(normalizedText);
-  } catch (error) {
-    console.error("Background: Failed to parse Puter batch response as JSON.", normalizedText, error);
-    throw new Error(`Could not parse Puter AI batch response. Raw: ${normalizedText}`);
+  if (!rawText) {
+    console.warn("Background: Batch Puter response was empty. Using individual fallback.");
+    return fallbackBatchToIndividualAnswers(payload.questionsDataArray);
   }
 
   if (!Array.isArray(parsedAnswers) || !parsedAnswers.every((answer) => typeof answer === "string")) {
-    throw new Error("Puter AI batch response was not a JSON array of strings.");
+    console.error("Background: Batch Puter response was not a JSON array of strings.", rawText);
+    return fallbackBatchToIndividualAnswers(payload.questionsDataArray);
   }
 
   if (parsedAnswers.length !== payload.questionsDataArray.length) {
-    throw new Error("Puter AI batch response count did not match the number of questions sent.");
+    console.error(
+      "Background: Batch Puter response count mismatch.",
+      parsedAnswers.length,
+      payload.questionsDataArray.length,
+      rawText,
+    );
+    return fallbackBatchToIndividualAnswers(payload.questionsDataArray);
   }
 
   return { answers: parsedAnswers };
 }
 
 function sendProcessPageMessage(tabId, showAnswers) {
-  chrome.tabs.sendMessage(
-    tabId,
-    { action: "processPage", showAnswers },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        console.error(
-          "Background Error: Could not send message to tab.",
-          chrome.runtime.lastError.message,
-        );
-      } else {
-        console.log("Background: Message sent to tab, response:", response);
-      }
-    },
-  );
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(
+      tabId,
+      { action: "processPage", showAnswers },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(response);
+      },
+    );
+  });
+}
+
+async function injectNetacadScripts(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    files: NETACAD_CONTENT_SCRIPTS,
+  });
+}
+
+async function processPageOnTab(tabId, showAnswers) {
+  try {
+    const response = await sendProcessPageMessage(tabId, showAnswers);
+    return response || {
+      success: false,
+      error: "No response from page after sending process command.",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const shouldReinject =
+      message.includes("Could not establish connection") ||
+      message.includes("Receiving end does not exist");
+
+    if (!shouldReinject) {
+      throw error;
+    }
+
+    console.warn(
+      "Background: Content script connection missing. Re-injecting scripts and retrying.",
+      message,
+    );
+    await injectNetacadScripts(tabId);
+    const response = await sendProcessPageMessage(tabId, showAnswers);
+    return response || {
+      success: false,
+      error: "No response from page after re-injecting content scripts.",
+    };
+  }
 }
 
 chrome.commands.onCommand.addListener((command) => {
@@ -219,7 +393,13 @@ chrome.commands.onCommand.addListener((command) => {
 
     chrome.storage.sync.get(["showAnswers"], (result) => {
       const showAnswers = typeof result.showAnswers === "boolean" ? result.showAnswers : true;
-      sendProcessPageMessage(tabs[0].id, showAnswers);
+      processPageOnTab(tabs[0].id, showAnswers)
+        .then((response) => {
+          console.log("Background: process-page command result:", response);
+        })
+        .catch((error) => {
+          console.error("Background: process-page command failed.", error);
+        });
     });
   });
 });
@@ -281,6 +461,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           error: normalizeErrorMessage(error, "Batch Puter AI request failed."),
         }),
       );
+    return true;
+  }
+
+  if (request.action === "processPageOnActiveTab") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs.length || !tabs[0].id) {
+        sendResponse({
+          success: false,
+          error: "Could not find active tab.",
+        });
+        return;
+      }
+
+      processPageOnTab(tabs[0].id, request.showAnswers !== false)
+        .then((response) => {
+          sendResponse(response || { success: true, result: true });
+        })
+        .catch((error) =>
+          sendResponse({
+            success: false,
+            error: normalizeErrorMessage(error, "Failed to process page on active tab."),
+          }),
+        );
+    });
     return true;
   }
 

@@ -1,3 +1,53 @@
+const aiAnswerCache = new Map();
+
+function createQuestionCacheKey(questionText, answerTexts) {
+  const normalizedQuestion = (questionText || "").trim().replace(/\s+/g, " ");
+  const normalizedAnswers = (answerTexts || [])
+    .map((answer) => (answer || "").trim().replace(/\s+/g, " "))
+    .join("||");
+  return `${normalizedQuestion}__${normalizedAnswers}`;
+}
+
+function renderAiAnswer(aiAnswerDisplay, answerText, index, sourceLabel = "cache") {
+  if (!aiAnswerDisplay || !answerText) {
+    return;
+  }
+
+  if (answerText.toLowerCase().startsWith("error:")) {
+    const friendlyMsg = getFriendlyAiErrorMessage(answerText);
+    aiAnswerDisplay.textContent = friendlyMsg || answerText;
+    console.error(`NetAcad UI: Error displayed for Q${index + 1} from ${sourceLabel}: ${answerText}`);
+    return;
+  }
+
+  const multiAnswerSeparator = " /// ";
+  if (answerText.includes(multiAnswerSeparator)) {
+    const individualAnswers = answerText
+      .split(multiAnswerSeparator)
+      .map((ans) => ans.trim())
+      .filter((ans) => ans.length > 0);
+    if (individualAnswers.length > 0) {
+      aiAnswerDisplay.innerHTML = "AI Suggestions:<br />- " + individualAnswers.join("<br />- ");
+    } else {
+      aiAnswerDisplay.textContent = "AI Suggestion: Received multiple answer format but no valid content.";
+    }
+    return;
+  }
+
+  const individualAnswers = answerText
+    .split("\n")
+    .map((ans) => ans.trim())
+    .filter((ans) => ans.length > 0);
+
+  if (individualAnswers.length > 1) {
+    aiAnswerDisplay.innerHTML = "AI Suggestions:<br />- " + individualAnswers.join("<br />- ");
+  } else if (individualAnswers.length === 1) {
+    aiAnswerDisplay.textContent = `AI Suggestion: ${individualAnswers[0]}`;
+  } else {
+    aiAnswerDisplay.textContent = "AI Suggestion: No valid answer content received.";
+  }
+}
+
 function createAiAssistantUI(uiContainerId, index) {
   const uiContainer = document.createElement("div");
   uiContainer.id = uiContainerId;
@@ -193,185 +243,68 @@ function updateUiAndLogsPostExtraction(aiAnswerDisplay, questionText, answerText
   }
 }
 
-function injectUi(uiContainer, questionTextElement, mcqViewElement, uiContainerId, index) {
+function getOutermostHostElement(node) {
+  let currentNode = node;
+
+  while (currentNode) {
+    const root = currentNode.getRootNode ? currentNode.getRootNode() : null;
+    if (!(root instanceof ShadowRoot) || !root.host) {
+      return currentNode;
+    }
+    currentNode = root.host;
+  }
+
+  return null;
+}
+
+function injectUi(uiContainer, questionTextElement, mcqViewElement, answerElements, uiContainerId, index) {
   let uiInjected = false;
-  if (questionTextElement && questionTextElement.parentNode) {
-    try {
-      const oldUiInPlace = questionTextElement.parentNode.querySelector(
-        `#${uiContainerId}`
-      );
-      if (oldUiInPlace) {
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): Removing existing UI (id: ${uiContainerId}) from questionTextElement's parent.`
-        );
-        oldUiInPlace.remove();
-      }
 
-      console.debug(
-        `NetAcad UI: Injection (Q ${index + 1}): Preparing to inject. uiContainer.id: ${
-          uiContainer.id
-        }, uiContainer.outerHTML (brief): ${uiContainer.outerHTML.substring(
-          0,
-          100
-        )}...`
-      );
-      console.debug(
-        `NetAcad UI: Injection (Q ${index + 1}): questionTextElement is <${
-          questionTextElement.tagName
-        }>. Parent is <${questionTextElement.parentNode.tagName}>.`
-      );
+  const outermostHostElement = mcqViewElement
+    ? getOutermostHostElement(mcqViewElement)
+    : null;
 
-      questionTextElement.parentNode.insertBefore(
+  if (outermostHostElement && outermostHostElement.parentElement) {
+    const existingUiByHost = outermostHostElement.parentElement.querySelector(
+      `#${uiContainerId}`
+    );
+    if (
+      existingUiByHost &&
+      existingUiByHost.parentElement === outermostHostElement.parentElement
+    ) {
+      existingUiByHost.remove();
+    }
+
+    console.debug(
+      `NetAcad UI: Injection (Q ${
+        index + 1
+      }): Trying to place UI outside NetAcad shadow DOM to avoid clipping.`
+    );
+
+    if (outermostHostElement.nextSibling) {
+      outermostHostElement.parentElement.insertBefore(
         uiContainer,
-        questionTextElement.nextSibling
+        outermostHostElement.nextSibling
       );
-
-      const injectedElementCheck = questionTextElement.parentNode.querySelector(
-        `#${uiContainerId}`
-      );
-      if (injectedElementCheck) {
-        console.debug(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): SUCCESS - Injected after questionTextElement. Element #${uiContainerId} FOUND in parent. Parent: <${
-            questionTextElement.parentNode.tagName
-          }>, questionTextElement: <${
-            questionTextElement.tagName
-          }>. Injected el: <${injectedElementCheck.tagName}>`
-        );
-        uiInjected = true;
-
-        // Deferred check
-        setTimeout(() => {
-          const stillThereCheck = document.getElementById(uiContainerId); // Check globally as it might have been moved
-          if (stillThereCheck) {
-            console.debug(
-              `NetAcad UI: Injection (Q ${
-                index + 1
-              }) DEFERRED CHECK: Element #${uiContainerId} IS STILL in the DOM (document.getElementById). Visible: ${!!stillThereCheck.offsetParent}`
-            );
-            const parentNode = stillThereCheck.parentNode;
-            const rootNode = parentNode ? parentNode.getRootNode() : null;
-            let hostInfo =
-              "Parent context unclear (element may have been moved).";
-            if (rootNode && rootNode instanceof ShadowRoot) {
-              hostInfo = `Parent is in a ShadowRoot. Host: <${
-                rootNode.host.tagName
-              } id="${rootNode.host.id}" class="${rootNode.host.className}">. Host visible: ${!!rootNode.host.offsetParent}.`;
-            } else if (rootNode) {
-              hostInfo = `Parent's rootNode is <${rootNode.nodeName}>.`;
-            }
-            console.debug(
-              `NetAcad UI: Injection (Q ${
-                index + 1
-              }) DEFERRED CHECK - Parent Context: ${hostInfo}. Parent Tag: ${
-                parentNode ? `<${parentNode.tagName}>` : "N/A"
-              }. Parent visible: ${!!(parentNode && parentNode.offsetParent)}`
-            );
-          } else {
-            // If not found by document.getElementById, check the original parent
-            const originalParent = questionTextElement
-              ? questionTextElement.parentNode
-              : null;
-            if (!originalParent) {
-              console.error(
-                `NetAcad UI: Injection (Q ${
-                  index + 1
-                }) DEFERRED CHECK: Original parent (questionTextElement.parentNode) is null. Cannot check further.`
-              );
-              return;
-            }
-
-            const stillInOriginalParentCheck = originalParent.querySelector(
-              `#${uiContainerId}`
-            );
-            if (stillInOriginalParentCheck) {
-              const rootNode = originalParent.getRootNode();
-              let hostInfo =
-                "Original parent is not in a Shadow DOM or getRootNode is document.";
-              if (rootNode instanceof ShadowRoot) {
-                hostInfo = `Original parent is in a ShadowRoot. Host: <${
-                  rootNode.host.tagName
-                } id="${rootNode.host.id}" class="${
-                  rootNode.host.className
-                }">. Host visible: ${!!rootNode.host.offsetParent}.`;
-              } else if (rootNode === document) {
-                hostInfo = "Original parent's rootNode is the main document.";
-              } else {
-                hostInfo = `Original parent's rootNode is of type ${
-                  rootNode.nodeName || "unknown"
-                }`;
-              }
-              console.debug(
-                `NetAcad UI: Injection (Q ${
-                  index + 1
-                }) DEFERRED CHECK - Original Parent Context: ${hostInfo}. Original Parent Tag: <${
-                  originalParent.tagName
-                }>. Original Parent Visible (offsetParent): ${!!originalParent.offsetParent}`
-              );
-            } else {
-              console.error(
-                `NetAcad UI: Injection (Q ${
-                  index + 1
-                }) DEFERRED CHECK: Element #${uiContainerId} NO LONGER in original parent NOR by document.getElementById. Likely removed or parent changed.`
-              );
-            }
-          }
-        }, 500);
-      } else {
-        console.error(
-          `NetAcad UI: Injection (Q ${
-            index + 1
-          }): CRITICAL FAILURE - insertBefore called, but element #${uiContainerId} NOT FOUND in parent immediately after. Parent: <${
-            questionTextElement.parentNode.tagName
-          }>, questionTextElement: <${questionTextElement.tagName}>.`
-        );
-        uiInjected = false; // Explicitly set to false
-      }
-    } catch (e) {
-      console.warn(
+      console.debug(
         `NetAcad UI: Injection (Q ${
           index + 1
-        }): FAILED to inject after questionTextElement. Parent: ${
-          questionTextElement.parentNode
-            ? `<${questionTextElement.parentNode.tagName}>`
-            : "null"
-        }, questionTextElement: <${questionTextElement.tagName}>. Error:`,
-        e
+        }): SUCCESS - Injected after the outermost host element.`
+      );
+    } else {
+      outermostHostElement.parentElement.appendChild(uiContainer);
+      console.debug(
+        `NetAcad UI: Injection (Q ${
+          index + 1
+        }): SUCCESS - Appended after the outermost host element.`
       );
     }
+    uiInjected = true;
   } else {
     console.debug(
       `NetAcad UI: Injection (Q ${
         index + 1
-      }): SKIPPED - questionTextElement (found: ${!!questionTextElement}) or its parentNode (parent exists: ${!!(
-        questionTextElement && questionTextElement.parentNode
-      )}) is missing.`
-    );
-  }
-
-  if (!uiInjected && mcqViewElement && mcqViewElement.shadowRoot) {
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): Attempting fallback to mcqViewElement.shadowRoot.`
-    );
-    mcqViewElement.shadowRoot.appendChild(uiContainer);
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): SUCCESS - Injected into mcqViewElement.shadowRoot.`
-    );
-    uiInjected = true;
-  } else if (!uiInjected) {
-    console.debug(
-      `NetAcad UI: Injection (Q ${
-        index + 1
-      }): SKIPPED - mcqViewElement (found: ${!!mcqViewElement}) or its shadowRoot (shadowRoot exists: ${!!(
-        mcqViewElement && mcqViewElement.shadowRoot
-      )}) is missing for direct shadowRoot append.`
+      }): Could not find an outer host mount point, falling back to previous strategies.`
     );
   }
 
@@ -496,6 +429,7 @@ function getFriendlyAiErrorMessage(errorString) {
 
 async function handleRefreshAction(questionText, answerTexts, authToken, aiAnswerDisplay, index) {
   if (!aiAnswerDisplay) return;
+  const questionCacheKey = createQuestionCacheKey(questionText, answerTexts);
 
   if (!authToken) {
     aiAnswerDisplay.textContent =
@@ -526,6 +460,7 @@ async function handleRefreshAction(questionText, answerTexts, authToken, aiAnswe
   }
 
   aiAnswerDisplay.textContent = "Asking Puter AI (single refresh)...";
+  aiAnswerCache.set(questionCacheKey, { status: "pending" });
   console.debug(
     `NetAcad UI: refreshAction for Q${
       index + 1
@@ -537,27 +472,27 @@ async function handleRefreshAction(questionText, answerTexts, authToken, aiAnswe
     `NetAcad UI: AI Answer (single refresh) received for Q${index + 1}: '${rawAiResponse}' (Full text)`
   );
 
+  aiAnswerCache.set(questionCacheKey, {
+    status: "resolved",
+    answer: rawAiResponse,
+  });
+
+  if (!aiAnswerDisplay.isConnected) {
+    console.debug(
+      `NetAcad UI: Q${index + 1} display node was detached before render; requesting re-scrape to restore cached answer.`,
+    );
+    if (typeof window.scrapeData === "function") {
+      setTimeout(() => {
+        window.scrapeData();
+      }, 0);
+    }
+    return;
+  }
+
   if (rawAiResponse && rawAiResponse.trim() !== "" && !rawAiResponse.toLowerCase().startsWith("error:")) {
-    const individualAnswers = rawAiResponse.split('\n').map(ans => ans.trim()).filter(ans => ans.length > 0);
-    if (individualAnswers.length > 1) {
-      aiAnswerDisplay.innerHTML = "AI Suggestions:<br />- " + individualAnswers.join("<br />- ");
-      console.debug(`NetAcad UI: Q${index + 1} (single refresh) multiple answers:`, individualAnswers);
-    } else if (individualAnswers.length === 1) {
-      aiAnswerDisplay.textContent = `AI Suggestion: ${individualAnswers[0]}`;
-      console.debug(`NetAcad UI: Q${index + 1} (single refresh) single answer: ${individualAnswers[0]}`);
-    } else {
-      aiAnswerDisplay.textContent = "AI Suggestion: No valid answer content received (single refresh).";
-      console.warn(`NetAcad UI: Q${index + 1} (single refresh) AI response was empty or only whitespace after processing: '${rawAiResponse}'`);
-    }
+    renderAiAnswer(aiAnswerDisplay, rawAiResponse, index, "single refresh");
   } else if (rawAiResponse && rawAiResponse.toLowerCase().startsWith("error:")) {
-    // Improved error handling
-    const friendlyMsg = getFriendlyAiErrorMessage(rawAiResponse);
-    if (friendlyMsg) {
-      aiAnswerDisplay.textContent = friendlyMsg;
-    } else {
-      aiAnswerDisplay.textContent = rawAiResponse; // Display the error message directly
-    }
-    console.error(`NetAcad UI: Error displayed for Q${index + 1} (single refresh): ${rawAiResponse}`);
+    renderAiAnswer(aiAnswerDisplay, rawAiResponse, index, "single refresh");
   } else {
     aiAnswerDisplay.textContent =
       "AI Suggestion: No answer received or answer was empty (single refresh).";
@@ -595,10 +530,12 @@ async function processSingleQuestion(mcqViewElement, index, authToken, preFetche
   
   // --- 3. Process Answer Elements & Update UI based on extraction ---
   let answerTexts = processAnswerElements(answerElements, index);
+  const questionCacheKey = createQuestionCacheKey(questionText, answerTexts);
+  const cachedAnswerState = aiAnswerCache.get(questionCacheKey);
   updateUiAndLogsPostExtraction(aiAnswerDisplay, questionText, answerTexts, index);
 
   // --- 4. UI Injection Logic ---
-  injectUi(uiContainer, questionTextElement, mcqViewElement, uiContainerId, index);
+  injectUi(uiContainer, questionTextElement, mcqViewElement, answerElements, uiContainerId, index);
 
   // --- 5. Refresh Action and Initial Fetch/Status ---
   refreshButton.addEventListener("click", () => 
@@ -610,28 +547,12 @@ async function processSingleQuestion(mcqViewElement, index, authToken, preFetche
     aiAnswerDisplay.textContent = "Batch processing... Please wait.";
     console.debug(`NetAcad UI: Q${index + 1} waiting for batched AI answer.`);
   } else if (preFetchedAiAnswer) { // An actual answer or error string is provided
-    if (preFetchedAiAnswer.toLowerCase().startsWith("error:")) {
-      // Improved error handling
-      const friendlyMsg = getFriendlyAiErrorMessage(preFetchedAiAnswer);
-      if (friendlyMsg) {
-        aiAnswerDisplay.textContent = friendlyMsg;
-      } else {
-        aiAnswerDisplay.textContent = preFetchedAiAnswer;
-      }
-      console.error(`NetAcad UI: Error displayed for Q${index + 1} from pre-fetched data: ${preFetchedAiAnswer}`);
-    } else {
-      const multiAnswerSeparator = " /// ";
-      if (preFetchedAiAnswer.includes(multiAnswerSeparator)) {
-        const individualAnswers = preFetchedAiAnswer.split(multiAnswerSeparator).map(ans => ans.trim()).filter(ans => ans.length > 0);
-        if (individualAnswers.length > 0) {
-          aiAnswerDisplay.innerHTML = "AI Suggestions:<br />- " + individualAnswers.join("<br />- ");
-        } else {
-           aiAnswerDisplay.textContent = "AI Suggestion: Received multiple answer format but no valid content.";
-        }
-      } else {
-        aiAnswerDisplay.textContent = `AI Suggestion: ${preFetchedAiAnswer}`;
-      }
-    }
+    aiAnswerCache.set(questionCacheKey, { status: "resolved", answer: preFetchedAiAnswer });
+    renderAiAnswer(aiAnswerDisplay, preFetchedAiAnswer, index, "pre-fetched data");
+  } else if (cachedAnswerState?.status === "resolved" && cachedAnswerState.answer) {
+    renderAiAnswer(aiAnswerDisplay, cachedAnswerState.answer, index, "cache");
+  } else if (cachedAnswerState?.status === "pending") {
+    aiAnswerDisplay.textContent = "Asking Puter AI...";
   } else { // No pre-fetched answer, proceed with individual fetch if Q/A is valid
     if (
       questionText !== "Question text not found" &&
